@@ -1,6 +1,3 @@
-Okay, here is a professionally formatted `README.md` file for your application, incorporating the details from the final script, our conversation, and the original planning documents [cite: Panopto/overview.md, Panopto/plan.md].
-
-```markdown
 # M3U8 to Hebrew Transcript Pipeline
 
 ## 1. Overview
@@ -168,5 +165,3 @@ For each pair in the input file, the script performs the following steps:
 * **`401 Client Error: Unauthorized` during Polling (if manually checked):** Ensure API requests include the `Ocp-Apim-Subscription-Key` header. Browser access to API URLs will fail without it.
 * **Authentication Errors (Storage or Speech):** Double-check that the `AZURE_STORAGE_CONNECTION_STRING` and `AZURE_SPEECH_API_KEY` in the `.env` file are correct and correspond to active resources with the necessary permissions/tier. Regenerate keys if unsure.
 * **Transcription Parsing Errors:** If the script saves a `.raw.json` file instead of a `.txt` file, it means the structure of the JSON returned by Azure didn't match the expected parsing logic (`combinedRecognizedPhrases`/`lexical`). Inspect the raw JSON and adjust the parsing logic in the `save_transcript_to_file` function if necessary.
-
-```
