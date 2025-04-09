@@ -1,0 +1,5 @@
+.env
+input.txt
+test.py
+*.mp3
+*.txt
