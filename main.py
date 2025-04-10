@@ -39,6 +39,13 @@ logging.basicConfig(
     ]
 )
 
+# --- Suppress verbose Azure SDK logging ---
+logging.getLogger('azure.storage.blob').setLevel(logging.WARNING)
+logging.getLogger('azure.core.pipeline.policies').setLevel(logging.WARNING)
+# Also suppress underlying urllib3 logs often used by requests/azure
+logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
+# --- End Suppress ---
+
 # Get configuration from environment variables with defaults
 # Azure Credentials
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -210,10 +217,10 @@ def _make_speech_api_request(method, url, headers=None, json_payload=None, data=
     # Log details before making the request
     # logging.info(f"Making request: {method} {url}")
     # logging.info(f"Request Headers: {headers}")
-    if json_payload:
-         logging.info(f"Request JSON Payload (via json=): {json.dumps(json_payload, indent=2)}")
-    if data:
-         logging.info(f"Request Data Payload (via data=): {data}")
+    # if json_payload:
+    #      logging.info(f"Request JSON Payload (via json=): {json.dumps(json_payload, indent=2)}")
+    # if data:
+    #      logging.info(f"Request Data Payload (via data=): {data}")
 
     # Make the request, passing both json and data allows requests to pick correctly
     response = requests.request(method, url, headers=headers, json=json_payload, data=data, timeout=timeout)
@@ -240,12 +247,12 @@ def submit_transcription_job(sas_uri, job_base_name):
     }
 
     logging.info(f"Attempting to POST to URL: {endpoint_url}")
-    logging.info(f"Payload Dictionary: {payload}") # Log dictionary
+    # logging.info(f"Payload Dictionary: {payload}") # Log dictionary
 
     try:
         # --- Explicitly convert the dictionary to a JSON string ---
         payload_str = json.dumps(payload)
-        logging.info(f"Sending JSON string: {payload_str}") # Log JSON string
+        # logging.info(f"Sending JSON string: {payload_str}") # Log JSON string
 
         # --- Call the internal request function using data=payload_str ---
         response = _make_speech_api_request("POST", endpoint_url, headers=SPEECH_HEADERS, data=payload_str)
