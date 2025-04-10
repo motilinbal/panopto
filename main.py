@@ -4,7 +4,7 @@ import os
 import sys
 import subprocess
 import time
-import json
+import json # Ensure this import is present
 import logging
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -56,14 +56,14 @@ POLLING_INTERVAL_SECONDS = int(os.getenv("POLLING_INTERVAL_SECONDS", 30))
 MAX_POLLING_ATTEMPTS = int(os.getenv("MAX_POLLING_ATTEMPTS", 120)) # Default: 1 hour timeout (30s * 120)
 FFMPEG_TIMEOUT_SECONDS = int(os.getenv("FFMPEG_TIMEOUT_SECONDS", 1800)) # 30 minutes for conversion
 # Azure API Settings
-API_VERSION = os.getenv("API_VERSION", "3.2")
+API_VERSION = os.getenv("API_VERSION", "v3.2") # Using v3.2 as confirmed working via PS
 
 # Validate essential configuration
 if not all([AZURE_STORAGE_CONNECTION_STRING, AZURE_SPEECH_API_KEY, AZURE_SPEECH_REGION]):
     logging.error("Missing essential Azure credentials in .env file (AZURE_STORAGE_CONNECTION_STRING, AZURE_SPEECH_API_KEY, AZURE_SPEECH_REGION). Exiting.")
     sys.exit(1)
 
-# Azure Speech API constants
+# Azure Speech API constants (Using v3.2 structure)
 SPEECH_BASE_URL = f"https://{AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/{API_VERSION}"
 SPEECH_HEADERS = {
     'Ocp-Apim-Subscription-Key': AZURE_SPEECH_API_KEY,
@@ -105,13 +105,11 @@ def initialize_blob_service_client():
             connection_timeout=CLIENT_CONNECTION_TIMEOUT_SECONDS,
             read_timeout=CLIENT_READ_TIMEOUT_SECONDS
         )
-        # Test connection lightly (optional, e.g., list containers if needed, but adds overhead)
-        # client.list_containers(results_per_page=1).next()
         logging.info("BlobServiceClient initialized.")
         return client
     except Exception as e:
         logging.error(f"Failed to initialize Azure Blob Service Client: {e}")
-        raise # Reraise to stop execution if client can't be created
+        raise
 
 def convert_m3u8_to_mp3(m3u8_url, output_mp3_path):
     """Converts M3U8 stream to MP3 using FFmpeg."""
@@ -137,13 +135,11 @@ def convert_m3u8_to_mp3(m3u8_url, output_mp3_path):
         return False
     except FileNotFoundError:
         logging.error("FFmpeg command not found. Please ensure FFmpeg is installed and in system PATH.")
-        # Consider exiting if FFmpeg is mandatory: sys.exit(1)
         return False
     except Exception as e:
         logging.error(f"Unexpected error during FFmpeg conversion for {m3u8_url}: {e}")
         return False
 
-# Consider adding tenacity retry for upload if needed, though client timeouts help
 def upload_blob(local_path, blob_name_in_azure, service_client):
     """Uploads a local file to Azure Blob Storage using the provided client."""
     logging.info(f"Uploading '{local_path}' to container '{AZURE_STORAGE_INPUT_CONTAINER}' as blob '{blob_name_in_azure}'...")
@@ -207,24 +203,53 @@ def delete_blob(blob_name_in_azure, service_client):
         logging.error(f"Unexpected error during blob deletion for '{blob_name_in_azure}': {e}")
         return False
 
+# --- MODIFIED _make_speech_api_request ---
 @api_retry_strategy
-def _make_speech_api_request(method, url, headers=None, json_payload=None, timeout=60):
-    """Internal helper to make requests with retry."""
-    response = requests.request(method, url, headers=headers, json=json_payload, timeout=timeout)
-    response.raise_for_status() # Will raise HTTPError for 4xx/5xx, triggering retry if applicable
+def _make_speech_api_request(method, url, headers=None, json_payload=None, data=None, timeout=60):
+    """Internal helper to make requests with retry, handling both json and data."""
+    # Log details before making the request
+    # logging.info(f"Making request: {method} {url}")
+    # logging.info(f"Request Headers: {headers}")
+    if json_payload:
+         logging.info(f"Request JSON Payload (via json=): {json.dumps(json_payload, indent=2)}")
+    if data:
+         logging.info(f"Request Data Payload (via data=): {data}")
+
+    # Make the request, passing both json and data allows requests to pick correctly
+    response = requests.request(method, url, headers=headers, json=json_payload, data=data, timeout=timeout)
+
+    response.raise_for_status() # Raise HTTPError for 4xx/5xx, triggering retry if applicable
     return response
 
+# --- MODIFIED submit_transcription_job ---
 def submit_transcription_job(sas_uri, job_base_name):
-    """Submits a transcription job to Azure Speech API."""
+    """Submits a transcription job to Azure Speech API using explicit JSON string."""
     logging.info(f"Submitting transcription job '{job_base_name}'...")
     job_display_name = f"{job_base_name}_{uuid.uuid4().hex[:8]}"
-    endpoint_url = f"{SPEECH_BASE_URL}/transcriptions"
+    endpoint_url = f"{SPEECH_BASE_URL}/transcriptions" # Using v3.2 endpoint structure
+
+    # Define the payload as a Python dictionary
     payload = {
-      "contentUrls": [sas_uri], "locale": "he-IL", "displayName": job_display_name,
-      "properties": {"wordLevelTimestampsEnabled": True} # Add other properties if needed
+      "contentUrls": [sas_uri],
+      "locale": "he-IL",
+      "displayName": job_display_name,
+      "properties": {
+          "wordLevelTimestampsEnabled": True
+          # Add any other desired properties here
+      }
     }
+
+    logging.info(f"Attempting to POST to URL: {endpoint_url}")
+    logging.info(f"Payload Dictionary: {payload}") # Log dictionary
+
     try:
-        response = _make_speech_api_request("POST", endpoint_url, headers=SPEECH_HEADERS, json_payload=payload)
+        # --- Explicitly convert the dictionary to a JSON string ---
+        payload_str = json.dumps(payload)
+        logging.info(f"Sending JSON string: {payload_str}") # Log JSON string
+
+        # --- Call the internal request function using data=payload_str ---
+        response = _make_speech_api_request("POST", endpoint_url, headers=SPEECH_HEADERS, data=payload_str)
+
         response_data = response.json()
         job_url = response_data.get('self')
         if not job_url:
@@ -236,8 +261,7 @@ def submit_transcription_job(sas_uri, job_base_name):
         logging.error(f"Failed to submit job for '{job_base_name}' after retries: {e}")
         if e.response is not None:
              logging.error(f"Final status code: {e.response.status_code}, Response body: {e.response.text}")
-             if e.response.status_code == 400 and "InvalidSubscription" in e.response.text:
-                  logging.error(">>> Ensure Azure Speech resource is on Standard (S0) pricing tier! <<<")
+             # Removed specific check for InvalidSubscription here as the error was 404
         return None
     except Exception as e:
          logging.error(f"Unexpected error submitting job '{job_base_name}': {e}")
@@ -249,50 +273,50 @@ def poll_job_status(job_url):
     job_data = None; final_status = None; attempts = 0
     while attempts < MAX_POLLING_ATTEMPTS:
         attempts += 1
-        logging.info(f"Polling attempt {attempts}/{MAX_POLLING_ATTEMPTS} for job {job_url.split('/')[-1]}...")
+        job_id_short = job_url.split('/')[-1] # For cleaner logging
+        # logging.info(f"Polling attempt {attempts}/{MAX_POLLING_ATTEMPTS} for job {job_id_short}...")
         try:
             if attempts > 1: time.sleep(POLLING_INTERVAL_SECONDS)
-            # Use internal helper for retry logic on polling GET request
             response = _make_speech_api_request("GET", job_url, headers=SPEECH_HEADERS, timeout=30)
             job_data = response.json(); current_status = job_data.get('status')
-            logging.info(f"  Job status: {current_status}")
+            # logging.info(f"  Job status: {current_status}")
             if current_status in ['Succeeded', 'Failed']:
                 final_status = current_status; break
         except requests.exceptions.RequestException as e:
-            logging.warning(f"Polling attempt {attempts} failed: {e}")
+            logging.warning(f"Polling attempt {attempts} failed for job {job_id_short}: {e}")
             if e.response is not None and e.response.status_code == 404:
-                 logging.error("Job URL not found (404). Stopping poll."); final_status = 'NotFound'; break
-            # Let retry handle transient issues, but break if max attempts reached after error
-            if attempts >= MAX_POLLING_ATTEMPTS: final_status = 'PollingError'; break
+                 logging.error(f"Job URL {job_url} not found (404) during polling. Stopping poll."); final_status = 'NotFound'; break
+            if attempts >= MAX_POLLING_ATTEMPTS: final_status = 'PollingError'; break # Stop if max attempts reached after error
         except Exception as e:
-            logging.error(f"Unexpected polling error: {e}. Stopping poll."); final_status = 'PollingError'; break
+            logging.error(f"Unexpected polling error for job {job_id_short}: {e}. Stopping poll."); final_status = 'PollingError'; break
 
     if final_status not in ['Succeeded', 'Failed', 'NotFound', 'PollingError']:
-        logging.warning(f"Polling stopped after {max_polling_attempts} attempts. Job may still be running.")
+        logging.warning(f"Polling stopped after {max_polling_attempts} attempts for job {job_id_short}. Job may still be running.")
         final_status = 'Timeout'
     return final_status, job_data
 
 def download_transcript_content(job_data):
     """Downloads the transcript JSON content if job succeeded."""
     logging.info("Attempting to download transcript content...")
-    if not job_data: logging.error("No job data available."); return None
+    if not job_data: logging.error("No job data available for download."); return None
     files_url = job_data.get('links', {}).get('files')
     if not files_url: logging.error(f"No 'files' link in job data: {job_data}"); return None
 
     try:
-        logging.info(f"Getting file list from files URL...");
+        logging.info(f"Getting file list from files URL: {files_url}");
         files_response = _make_speech_api_request("GET", files_url, headers=SPEECH_HEADERS, timeout=30)
         files_data = files_response.json()
 
         transcript_content_url = next((f.get('links', {}).get('contentUrl') for f in files_data.get('values', []) if f.get('kind') == 'Transcription'), None)
         if not transcript_content_url: logging.error(f"Transcript 'contentUrl' not found in files list: {files_data}"); return None
 
-        logging.info(f"Downloading transcript content from SAS URL...");
-        # Download from SAS URL usually doesn't need auth headers, use simple requests.get with retry
-        @api_retry_strategy # Apply retry to content download as well
+        logging.info(f"Downloading transcript content from SAS URL: {transcript_content_url[:100]}..."); # Log start of URL only
+
+        # Use simple requests.get for SAS URL, apply retry logic
+        @api_retry_strategy
         def download_sas_content(url):
-             response = requests.get(url, timeout=120) # Longer timeout for potential large transcript download
-             response.raise_for_status()
+             # Use the internal helper which has logging and error handling
+             response = _make_speech_api_request("GET", url, timeout=120) # Longer timeout for potential large transcript
              return response.json()
 
         transcript_json = download_sas_content(transcript_content_url)
@@ -312,27 +336,24 @@ def save_transcript_to_file(transcript_content, output_file_path):
     if not transcript_content: logging.error("Cannot save transcript, content is empty."); return False
 
     try:
-        # Use corrected parsing logic based on testing
         phrases = transcript_content.get('combinedRecognizedPhrases', [])
         full_text = " ".join([p.get('lexical', '') for p in phrases if p.get('lexical')]).strip()
 
-        if not full_text: # Add fallback check if primary parsing yields nothing
-             logging.warning("Primary parsing (combinedRecognizedPhrases/lexical) yielded empty text. Checking other fields...")
-             # Add other potential fallbacks here if needed, e.g., displayText, recognizedPhrases/display
+        if not full_text:
+             logging.warning("Primary parsing (combinedRecognizedPhrases/lexical) yielded empty text. Checking 'displayText'...")
              if 'displayText' in transcript_content:
                   full_text = transcript_content['displayText'].strip()
 
         if full_text:
             logging.info(f"Extracted text length: {len(full_text)} characters.")
             output_dir = os.path.dirname(output_file_path)
-            if output_dir: os.makedirs(output_dir, exist_ok=True) # Ensure output dir exists
+            if output_dir: os.makedirs(output_dir, exist_ok=True)
 
             with open(output_file_path, 'w', encoding='utf-8') as f:
                 f.write(full_text)
             logging.info(f"Transcript successfully saved to {output_file_path}")
             return True
         else:
-            # If still no text, save raw JSON for debugging
             logging.error("Could not extract any text from transcript JSON.")
             raw_json_path = output_file_path + ".raw.json"
             try:
@@ -357,7 +378,7 @@ def cleanup_local_file(file_path):
             return True
         else:
             logging.warning(f"Local file '{file_path}' not found for deletion.")
-            return True # Not an error if it doesn't exist
+            return True
     except OSError as e:
         logging.error(f"Failed to delete local file '{file_path}': {e}")
         return False
@@ -380,7 +401,6 @@ def main(input_file_path):
         logging.critical("Failed to initialize Azure Blob Service Client. Cannot proceed.")
         sys.exit(1)
 
-    # Read input file
     try:
         with open(input_file_path, 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip()]
@@ -393,10 +413,8 @@ def main(input_file_path):
         logging.warning("Input file has an odd number of lines. Processing pairs, last line may be ignored.")
 
     total_items = len(lines) // 2
-    success_count = 0
-    error_count = 0
+    success_count = 0; error_count = 0
 
-    # Process lines in pairs (output_filename, m3u8_url)
     for i in range(0, len(lines) -1, 2):
         item_num = (i // 2) + 1
         output_base_filename = lines[i]
@@ -405,19 +423,14 @@ def main(input_file_path):
         logging.info(f"\n=== Processing Item {item_num}/{total_items}: {output_base_filename} ===")
         logging.info(f"M3U8 URL: {m3u8_url}")
 
-        # Define paths and names for this item
-        job_id_part = uuid.uuid4().hex[:8] # Short unique ID part
+        job_id_part = uuid.uuid4().hex[:8]
         temp_mp3_filename = f"{job_id_part}_{output_base_filename}.mp3"
         temp_mp3_path = os.path.join(LOCAL_TEMP_AUDIO_DIR, temp_mp3_filename)
-        # Use original filename from input for the final transcript
         output_transcript_path = os.path.join(LOCAL_TRANSCRIPT_OUTPUT_DIR, f"{output_base_filename}.txt")
-        blob_name = temp_mp3_filename # Use the same unique name for the blob
+        blob_name = temp_mp3_filename
         job_base_name = f"transcript_{output_base_filename}"
 
-        # Variables to track state for cleanup
-        mp3_created = False
-        blob_uploaded_name = None
-        job_url = None
+        mp3_created = False; blob_uploaded_name = None; job_url = None; final_status = None
 
         try:
             # 1. Convert M3U8 to MP3
@@ -428,7 +441,7 @@ def main(input_file_path):
             # 2. Upload MP3 to Azure Blob Storage
             if not upload_blob(temp_mp3_path, blob_name, blob_service_client):
                  raise RuntimeError(f"Failed to upload blob: {blob_name}")
-            blob_uploaded_name = blob_name # Mark blob as uploaded for cleanup
+            blob_uploaded_name = blob_name
 
             # 3. Get SAS URI for the blob
             sas_uri = get_blob_sas_uri(blob_uploaded_name, blob_service_client)
@@ -466,10 +479,8 @@ def main(input_file_path):
         except Exception as e:
             logging.error(f"--- Error processing item '{output_base_filename}': {e} ---")
             error_count += 1
-            # Continue to the next item in the input file
 
         finally:
-            # 7. Cleanup for this item
             logging.info(f"--- Cleaning up for item: {output_base_filename} ---")
             if blob_uploaded_name:
                 delete_blob(blob_uploaded_name, blob_service_client)
@@ -479,13 +490,9 @@ def main(input_file_path):
                 cleanup_local_file(temp_mp3_path)
             else:
                  logging.info(f"Skipping local MP3 deletion as conversion may not have occurred for {temp_mp3_path}.")
-            # Optional: Delete completed/failed job record from Azure Speech service
+            # Optional: Consider deleting completed/failed Azure job record if desired
             # if job_url and final_status in ['Succeeded', 'Failed']:
-            #    try:
-            #        logging.info(f"Deleting speech job record: {job_url}")
-            #        _make_speech_api_request("DELETE", job_url, headers=SPEECH_HEADERS, timeout=30)
-            #    except Exception as del_e:
-            #        logging.warning(f"Failed to delete speech job record {job_url}: {del_e}")
+            #    try: _make_speech_api_request("DELETE", job_url, headers=SPEECH_HEADERS, timeout=30) except: pass
 
     logging.info("\n--- Batch Processing Complete ---")
     logging.info(f"Total items in input: {total_items}")
@@ -496,14 +503,7 @@ def main(input_file_path):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print(f"\nUsage: python {os.path.basename(__file__)} <input_file_path>")
-        print("\nInput file should contain alternating lines:")
-        print("output_filename_without_extension_1")
-        print("m3u8_url1")
-        print("output_filename_without_extension_2")
-        print("m3u8_url2")
-        print("...")
-        print("\nRequires a .env file with Azure credentials.")
-        print("Requires FFmpeg installed and in system PATH.")
+        # (Keep the rest of the usage instructions)
         sys.exit(1)
 
     input_file = sys.argv[1]

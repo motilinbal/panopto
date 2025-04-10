@@ -1,5 +1,7 @@
 .env
 input.txt
 test.py
+minimal_test.py
 *.mp3
 *.txt
+*.log
