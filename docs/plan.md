@@ -42,11 +42,11 @@
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         # Optional: Add file handler
         ```
-    * Define constants for Azure API version (e.g., `API_VERSION = "v3.1"`) and base URL [cite: docs/azure_speech_webhook.md, docs/azure_migration_plan.md].
+    * Define constants for Azure API version (e.g., `API_VERSION = "v3.2"`) and base URL [cite: docs/azure_speech_webhook.md, docs/azure_migration_plan.md].
         ```python
         AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
         AZURE_SPEECH_API_KEY = os.getenv("AZURE_SPEECH_API_KEY")
-        API_VERSION = "3.1" # Or latest supported like 3.2
+        API_VERSION = "3.2" # Or latest supported like 3.2
         SPEECH_BASE_URL = f"https://{AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/{API_VERSION}"
         HEADERS = {
             'Ocp-Apim-Subscription-Key': AZURE_SPEECH_API_KEY,

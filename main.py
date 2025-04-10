@@ -56,7 +56,7 @@ POLLING_INTERVAL_SECONDS = int(os.getenv("POLLING_INTERVAL_SECONDS", 30))
 MAX_POLLING_ATTEMPTS = int(os.getenv("MAX_POLLING_ATTEMPTS", 120)) # Default: 1 hour timeout (30s * 120)
 FFMPEG_TIMEOUT_SECONDS = int(os.getenv("FFMPEG_TIMEOUT_SECONDS", 1800)) # 30 minutes for conversion
 # Azure API Settings
-API_VERSION = os.getenv("API_VERSION", "3.1")
+API_VERSION = os.getenv("API_VERSION", "3.2")
 
 # Validate essential configuration
 if not all([AZURE_STORAGE_CONNECTION_STRING, AZURE_SPEECH_API_KEY, AZURE_SPEECH_REGION]):
