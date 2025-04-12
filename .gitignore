@@ -5,3 +5,4 @@ minimal_test.py
 *.mp3
 *.txt
 *.log
+settings.json

@@ -490,6 +490,7 @@ def main(input_file_path):
         finally:
             logging.info(f"--- Cleaning up for item: {output_base_filename} ---")
             if blob_uploaded_name:
+                logging.info(f"Deletion condition met. Calling delete_blob for '{blob_uploaded_name}'...")
                 delete_blob(blob_uploaded_name, blob_service_client)
             else:
                  logging.info(f"Skipping blob deletion as upload may not have occurred for {blob_name}.")
