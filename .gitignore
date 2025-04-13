@@ -6,3 +6,4 @@ minimal_test.py
 *.txt
 *.log
 settings.json
+/output

@@ -21,8 +21,8 @@ except ImportError:
 
 # --- User Input ---
 # TODO: Replace these values with the actual Job Name and Job ID you want to retrieve
-JOB_NAME = "linear-algebra-tutorial-03-04-25" # Example: Use the name from input.txt
-JOB_ID = "54d2c007-d1a6-4c9f-84af-edea84c95bd3" # Example: The ID from the logs
+JOB_NAME = "calculus-class-09-04-25" # Example: Use the name from input.txt
+JOB_ID = "8019801f-480f-4756-8a1f-4bf5cf0ade8c" # Example: The ID from the logs
 # --- End User Input ---
 
 # --- Configuration & Setup ---
